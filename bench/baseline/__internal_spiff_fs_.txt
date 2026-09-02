@@ -1,0 +1,24 @@
+goos: darwin
+goarch: arm64
+pkg: spiff/internal/spiff_fs
+cpu: Apple M5
+BenchmarkFS_SaveFile-10        	    4603	    271634 ns/op	     478 B/op	       6 allocs/op
+BenchmarkFS_SaveFile-10        	    4213	    283008 ns/op	     472 B/op	       6 allocs/op
+BenchmarkFS_SaveFile-10        	    4360	    288385 ns/op	     471 B/op	       6 allocs/op
+BenchmarkFS_SaveFile-10        	    4282	    274891 ns/op	     456 B/op	       6 allocs/op
+BenchmarkFS_SaveFile-10        	    3847	    285781 ns/op	     465 B/op	       6 allocs/op
+BenchmarkFS_SaveFile-10        	    4124	    289356 ns/op	     464 B/op	       6 allocs/op
+BenchmarkFS_GetSavedFile-10    	   11412	    105180 ns/op	     363 B/op	       4 allocs/op
+BenchmarkFS_GetSavedFile-10    	    9741	    106045 ns/op	     363 B/op	       4 allocs/op
+BenchmarkFS_GetSavedFile-10    	    9914	    105717 ns/op	     362 B/op	       4 allocs/op
+BenchmarkFS_GetSavedFile-10    	    9957	    105386 ns/op	     361 B/op	       4 allocs/op
+BenchmarkFS_GetSavedFile-10    	    9728	    105840 ns/op	     362 B/op	       4 allocs/op
+BenchmarkFS_GetSavedFile-10    	    9878	    105913 ns/op	     362 B/op	       4 allocs/op
+BenchmarkFS_CompareFiles-10    	    4666	    256982 ns/op	  107728 B/op	      35 allocs/op
+BenchmarkFS_CompareFiles-10    	    4422	    254354 ns/op	  107728 B/op	      35 allocs/op
+BenchmarkFS_CompareFiles-10    	    4254	    254610 ns/op	  107728 B/op	      35 allocs/op
+BenchmarkFS_CompareFiles-10    	    4075	    254122 ns/op	  107729 B/op	      35 allocs/op
+BenchmarkFS_CompareFiles-10    	    4372	    253909 ns/op	  107728 B/op	      35 allocs/op
+BenchmarkFS_CompareFiles-10    	    4468	    252810 ns/op	  107728 B/op	      35 allocs/op
+PASS
+ok  	spiff/internal/spiff_fs	24.833s

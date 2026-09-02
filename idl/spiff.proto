@@ -1,0 +1,45 @@
+syntax = "proto3";
+
+package spiff;
+
+option go_package = "spiff/internal/grpcserver/kitex_gen/spiffpb";
+
+message Chunk {
+  bytes data = 1;
+}
+
+message UploadResponse {
+  string id = 1;
+}
+
+message DownloadRequest {
+  string id = 1;
+}
+
+message CompareRequest {
+  string left_id = 1;
+  string right_id = 2;
+}
+
+message CompareResponse {
+  string diff = 1;
+}
+
+message FetchRequest {
+  string url = 1;
+}
+
+message FetchResponse {
+  bytes html = 1;
+}
+
+service Spiff {
+  // Upload streams the file body as chunks and returns the ID it was saved under.
+  rpc Upload(stream Chunk) returns (UploadResponse) {}
+  // Download streams a previously saved file's contents as chunks.
+  rpc Download(DownloadRequest) returns (stream Chunk) {}
+  // Compare returns a line-level diff between two previously saved files.
+  rpc Compare(CompareRequest) returns (CompareResponse) {}
+  // Fetch retrieves url's body, persists it via spiff_fs, and returns the full body.
+  rpc Fetch(FetchRequest) returns (FetchResponse) {}
+}

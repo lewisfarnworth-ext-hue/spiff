@@ -1,0 +1,24 @@
+goos: darwin
+goarch: arm64
+pkg: spiff/internal/httphandlers
+cpu: Apple M5
+BenchmarkUploadHandler-10      	    4154	    291891 ns/op	    6713 B/op	      26 allocs/op
+BenchmarkUploadHandler-10      	    3681	    289097 ns/op	    6731 B/op	      26 allocs/op
+BenchmarkUploadHandler-10      	    4210	    276114 ns/op	    6719 B/op	      26 allocs/op
+BenchmarkUploadHandler-10      	    4192	    284338 ns/op	    6727 B/op	      26 allocs/op
+BenchmarkUploadHandler-10      	    4255	    284764 ns/op	    6726 B/op	      26 allocs/op
+BenchmarkUploadHandler-10      	    3640	    285357 ns/op	    6697 B/op	      26 allocs/op
+BenchmarkDownloadHandler-10    	    9556	    108593 ns/op	   10726 B/op	      23 allocs/op
+BenchmarkDownloadHandler-10    	    9736	    108195 ns/op	   10711 B/op	      23 allocs/op
+BenchmarkDownloadHandler-10    	   10000	    109375 ns/op	   10729 B/op	      23 allocs/op
+BenchmarkDownloadHandler-10    	    9146	    110245 ns/op	   10730 B/op	      23 allocs/op
+BenchmarkDownloadHandler-10    	   10932	    109676 ns/op	   10739 B/op	      23 allocs/op
+BenchmarkDownloadHandler-10    	    9274	    109340 ns/op	   10736 B/op	      23 allocs/op
+BenchmarkCompareHandler-10     	    4676	    257050 ns/op	  126725 B/op	      58 allocs/op
+BenchmarkCompareHandler-10     	    4264	    257459 ns/op	  126724 B/op	      58 allocs/op
+BenchmarkCompareHandler-10     	    4282	    256113 ns/op	  126724 B/op	      58 allocs/op
+BenchmarkCompareHandler-10     	    4323	    256638 ns/op	  126724 B/op	      58 allocs/op
+BenchmarkCompareHandler-10     	    4308	    257492 ns/op	  126724 B/op	      58 allocs/op
+BenchmarkCompareHandler-10     	    4562	    261978 ns/op	  126724 B/op	      58 allocs/op
+PASS
+ok  	spiff/internal/httphandlers	24.578s

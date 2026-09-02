@@ -1,0 +1,30 @@
+goos: darwin
+goarch: arm64
+pkg: spiff/internal/grpcserver
+cpu: Apple M5
+BenchmarkChunkReader_Read-10     	   46900	     25251 ns/op	41526.12 MB/s	     832 B/op	      33 allocs/op
+BenchmarkChunkReader_Read-10     	   37402	     31850 ns/op	32921.93 MB/s	     832 B/op	      33 allocs/op
+BenchmarkChunkReader_Read-10     	   37706	     29303 ns/op	35783.87 MB/s	     832 B/op	      33 allocs/op
+BenchmarkChunkReader_Read-10     	   38454	     28530 ns/op	36753.90 MB/s	     832 B/op	      33 allocs/op
+BenchmarkChunkReader_Read-10     	   38456	     26875 ns/op	39016.63 MB/s	     832 B/op	      33 allocs/op
+BenchmarkChunkReader_Read-10     	   37233	     28398 ns/op	36924.85 MB/s	     832 B/op	      33 allocs/op
+BenchmarkChunkWriter_Write-10    	23917285	        49.58 ns/op	21148648.99 MB/s	      88 B/op	       3 allocs/op
+BenchmarkChunkWriter_Write-10    	24259250	        49.53 ns/op	21170902.22 MB/s	      88 B/op	       3 allocs/op
+BenchmarkChunkWriter_Write-10    	24094893	        49.50 ns/op	21182712.61 MB/s	      88 B/op	       3 allocs/op
+BenchmarkChunkWriter_Write-10    	24260640	        49.59 ns/op	21143660.68 MB/s	      88 B/op	       3 allocs/op
+BenchmarkChunkWriter_Write-10    	24320564	        49.72 ns/op	21090721.16 MB/s	      88 B/op	       3 allocs/op
+BenchmarkChunkWriter_Write-10    	24377649	        49.67 ns/op	21111954.29 MB/s	      88 B/op	       3 allocs/op
+BenchmarkHandler_Upload-10       	    2577	    448121 ns/op	   33610 B/op	      11 allocs/op
+BenchmarkHandler_Upload-10       	    2230	    459896 ns/op	   33558 B/op	      11 allocs/op
+BenchmarkHandler_Upload-10       	    2896	    431608 ns/op	   33584 B/op	      11 allocs/op
+BenchmarkHandler_Upload-10       	    2607	    451708 ns/op	   33645 B/op	      11 allocs/op
+BenchmarkHandler_Upload-10       	    2703	    430974 ns/op	   33648 B/op	      11 allocs/op
+BenchmarkHandler_Upload-10       	    2173	    491210 ns/op	   33607 B/op	      11 allocs/op
+BenchmarkHandler_Download-10     	   10796	    111197 ns/op	   33409 B/op	       8 allocs/op
+BenchmarkHandler_Download-10     	   10525	    112946 ns/op	   33411 B/op	       8 allocs/op
+BenchmarkHandler_Download-10     	   10851	    110723 ns/op	   33429 B/op	       8 allocs/op
+BenchmarkHandler_Download-10     	   10758	    111687 ns/op	   33419 B/op	       8 allocs/op
+BenchmarkHandler_Download-10     	   10730	    110945 ns/op	   33404 B/op	       8 allocs/op
+BenchmarkHandler_Download-10     	   10662	    112072 ns/op	   33415 B/op	       8 allocs/op
+PASS
+ok  	spiff/internal/grpcserver	32.987s
