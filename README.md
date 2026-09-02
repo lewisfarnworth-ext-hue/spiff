@@ -1,10 +1,25 @@
-# SPIFF
 
-- Scrape 
-- Pretty much any
-- Internet
-- File
-- Fastly
+RFC Demo repo. This code is not in production and most of it is test code.
+
+Some of the practices diverge from typical company standards, as I was testing whether certain libs were fit for use. 
+
+**The scheduler is the only important piece of code in this repo, as it's the only one relevant for the RFC.**
+
+Some of the peripherals (e.g. the TLS transport configuration) could probably be quite fruitful for the final service,
+be that signal or new one(s).  
+
+Claude is configured to be double strict with performance. I've benchmarked & load tested everything in this repo. This
+was a side-quest that I ran parallel to the the RFC requirements, off the back of a conversation I had with Tomm during
+our initial discussions- specifically around benchmarking practices and potential improvements to the current ways of 
+working. The current `fetch` is likely frivolous in the grand scheme because I was trying to juice the performance to 
+the gills as part of this side quest.
+
+Both the servers are completely frivolous. That was me testing out kitex.
+
+The FS module was created initially to test out the storing & diffing of artifacts, though later discussions in the RFC
+showed that artifact storage is probably best left to the consumer, as the artifect pipeline for KR is tightly integrated
+with the service. 
+
 
 # Servers
 
