@@ -8,6 +8,14 @@ work from one another when their own queue runs dry. Within a pool,
 submitted tasks carry a `Priority`, served in order but with a bounded
 worst-case wait for the lower-priority queue.
 
+![Work-stealing, bulkheaded, time-bound-priority scheduler diagram](../../assets/WorkStealingBulkHeadedScheduler.png)
+
+The diagram covers this package's actual queue/worker/aging mechanics (the
+selector's task-selection order and the deadline/jitter behavior). The
+surrounding `aih`/`csj`/`hba` containers and pool wiring it depicts belong to
+a different service that consumes this package — nothing outside
+`internal/scheduler` in this repo wires up `Kind`s yet.
+
 ## Why bulkheaded, work-stealing, and priority-aware
 
 **Bulkheading.** A single shared pool spanning every resource kind has
