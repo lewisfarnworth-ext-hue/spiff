@@ -1,0 +1,97 @@
+@startuml WorkStealingBulkHeadedScheduler
+title Work-Stealing, Bulkheaded, Time-Bound-Priority Scheduler\nInternal design of the "gRPC Server" containers (aih / csj / hba) from ContainerDiagram.puml
+
+skinparam rectangle {
+  BackgroundColor<<external>> #D9D9D9
+  BackgroundColor<<pool>> #E8F4FA
+  BackgroundColor<<queue>> #FFF3CD
+  BackgroundColor<<selector>> #FDE9D9
+  BackgroundColor<<worker>> #D9EAD3
+  BorderColor black
+}
+
+rectangle "Updates" <<external>> as Updates
+rectangle "Research" <<external>> as Research
+
+package "Resource-execution boundary" {
+
+  rectangle "Local Chrome Pool  (hba / provider='local')\nsize = BrowserConfig.MaxConcurrentProcesses" <<pool>> as ChromePool {
+    rectangle "Updates queue" <<queue>> as CQ_Updates
+    rectangle "Research queue" <<queue>> as CQ_Research
+
+    rectangle "Next-task selection, checked by every idle worker:\n1. own local deque non-empty? serve it (LIFO, cache-hot, lock-free)\n2. else: aging check — oldest Research item's deadline elapsed? serve it now\n3. else: Updates queue non-empty? serve it\n4. else: Research queue non-empty? serve it\n5. else: steal from a peer worker's local deque (a few passes) → park" <<selector>> as Selector
+
+    rectangle "Worker 1\n(lock-free local deque)" <<worker>> as CW1
+    rectangle "Worker 2\n(lock-free local deque)" <<worker>> as CW2
+
+    CQ_Updates --> Selector
+    CQ_Research --> Selector
+    Selector --> CW1
+    Selector --> CW2
+    CW1 <-> CW2 : idle peer steals\nfrom busy peer's deque
+
+    note right of CQ_Research
+      Deadline set once, at enqueue:
+      deadline = arrival + T − jitter.
+      jitter is drawn independently per
+      item from a single, PCG-seeded
+      generator shared by every submitter
+      to this queue, reusing the same lock
+      that already serializes enqueue —
+      it adds no separate point of
+      contention. This staggers when a
+      batch's items individually become
+      eligible, instead of all becoming
+      eligible at once — deadline never
+      exceeds T, so the "waits at most T"
+      bound is unchanged.
+    end note
+  }
+
+  rectangle "2Captcha Hosted Browser Pool  (hba / provider='2captcha')\nsize = Api2CaptchaConfig.BrowserMaxConcurrentSessions" <<pool>> as CaptchaPool
+  rectangle "LLM Pool  (aih.SuggestConfiguration + csj.judgeVerifiedContent)\nsize = LLM concurrency budget (not resource-capped today)" <<pool>> as LLMPool
+
+  note bottom of CaptchaPool
+    Same internal structure as the Local Chrome
+    Pool: one queue per caller, the same
+    aging + priority selection, and its own
+    fixed-size set of workers with local deques
+    that steal from each other, not from
+    the Local Chrome Pool.
+  end note
+
+  note bottom of LLMPool
+    Same internal structure. csj is only ever
+    called *by* aih (see SequenceDiagram-updates
+    -grpc.puml) — it is not a separate entry
+    point, so it shares aih's pool rather than
+    getting its own.
+  end note
+}
+
+rectangle "Headless Chrome Fleet" <<external>> as ChromeFleet
+rectangle "2captcha" <<external>> as TwoCaptcha
+rectangle "AI Provider" <<external>> as AIProvider
+
+Updates --> ChromePool
+Research --> ChromePool
+Updates --> CaptchaPool
+Research --> CaptchaPool
+Updates --> LLMPool
+Research --> LLMPool
+
+ChromePool --> ChromeFleet : CDP
+CaptchaPool --> TwoCaptcha : API
+LLMPool --> AIProvider : API
+
+legend right
+  |= Acronym / term |= Meaning |
+  | csj | Content Service Judge — judges extracted content as substantive vs. junk (called internally by aih only) |
+  | aih | AI Helper — LLM-driven auto-configuration of a new crawl source |
+  | hba | Headless Browser Abstraction — chromedp / 2Captcha-backed page scraping |
+  | CDP | Chrome DevTools Protocol |
+  | T | Aging threshold — the maximum time a queued Research item can wait before being served ahead of backlog |
+  | jitter | Independent per-item random offset subtracted from T at enqueue, so a batch's items don't all become eligible simultaneously |
+end legend
+
+@enduml
