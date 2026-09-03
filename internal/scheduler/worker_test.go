@@ -57,8 +57,8 @@ func TestWorker_FindTaskPrefersLocalDeque(t *testing.T) {
 	w := s.workers[0]
 
 	local, std, bg := noopNode(), noopNode(), noopNode()
-	s.standard.push(std)
-	s.background.push(bg, time.Now())
+	s.standard.push(std, 0)
+	s.background.push(bg, time.Now(), 0)
 	w.dq.pushBottom(local)
 
 	if got := w.findTask(); got != local {
@@ -73,8 +73,8 @@ func TestWorker_FindTaskAgedBeforeStandard(t *testing.T) {
 	w := s.workers[0]
 
 	std, bg := noopNode(), noopNode()
-	s.standard.push(std)
-	s.background.push(bg, time.Now())
+	s.standard.push(std, 0)
+	s.background.push(bg, time.Now(), 0)
 
 	if got := w.findTask(); got != bg {
 		t.Fatalf("findTask() = %p, want the aged background task %p", got, bg)
@@ -94,8 +94,8 @@ func TestWorker_FindTaskStandardBeforeUnagedBackground(t *testing.T) {
 	w := s.workers[0]
 
 	std, bg := noopNode(), noopNode()
-	s.background.push(bg, time.Now())
-	s.standard.push(std)
+	s.background.push(bg, time.Now(), 0)
+	s.standard.push(std, 0)
 
 	if got := w.findTask(); got != std {
 		t.Fatalf("findTask() = %p, want the standard task %p", got, std)
@@ -113,7 +113,7 @@ func TestWorker_FindTaskBackgroundWhenStandardEmpty(t *testing.T) {
 	w := s.workers[0]
 
 	bg := noopNode()
-	s.background.push(bg, time.Now())
+	s.background.push(bg, time.Now(), 0)
 
 	if got := w.findTask(); got != bg {
 		t.Fatalf("findTask() = %p, want the background task %p — it must not wait for its deadline once Standard is empty", got, bg)
@@ -228,6 +228,83 @@ func TestWorker_ScheduleSpillsWhenLocalDequeFull(t *testing.T) {
 	}
 }
 
+// TestWorker_ScheduleRejectsWhenStandardQueueFull covers schedule's
+// depth-cap return value directly, without needing a live pool: once
+// maxStandardDepth is reached, schedule must report false and bump
+// rejectedStandard instead of pushing.
+func TestWorker_ScheduleRejectsWhenStandardQueueFull(t *testing.T) {
+	s := newTestPool(2, time.Hour)
+	s.maxStandardDepth = 2
+
+	for i := 0; i < s.maxStandardDepth; i++ {
+		if ok := s.schedule(context.Background(), PriorityStandard, noopNode()); !ok {
+			t.Fatalf("schedule() #%d = false, want true (below the cap)", i)
+		}
+	}
+	if ok := s.schedule(context.Background(), PriorityStandard, noopNode()); ok {
+		t.Fatal("schedule() = true once the standard queue was already at its cap, want false")
+	}
+	if n := s.Stats().RejectedStandard; n != 1 {
+		t.Fatalf("Stats().RejectedStandard = %d, want 1", n)
+	}
+}
+
+// TestWorker_ScheduleRejectsWhenBackgroundQueueFull is the same check
+// for PriorityBackground against maxBackgroundDepth.
+func TestWorker_ScheduleRejectsWhenBackgroundQueueFull(t *testing.T) {
+	s := newTestPool(2, time.Hour)
+	s.maxBackgroundDepth = 2
+
+	for i := 0; i < s.maxBackgroundDepth; i++ {
+		if ok := s.schedule(context.Background(), PriorityBackground, noopNode()); !ok {
+			t.Fatalf("schedule() #%d = false, want true (below the cap)", i)
+		}
+	}
+	if ok := s.schedule(context.Background(), PriorityBackground, noopNode()); ok {
+		t.Fatal("schedule() = true once the background queue was already at its cap, want false")
+	}
+	if n := s.Stats().RejectedBackground; n != 1 {
+		t.Fatalf("Stats().RejectedBackground = %d, want 1", n)
+	}
+}
+
+// TestWorker_ScheduleQueueCapsAreIndependent guards against the two caps
+// being accidentally wired to the same counter or the same queue check:
+// exhausting Standard's cap must have no effect on Background.
+func TestWorker_ScheduleQueueCapsAreIndependent(t *testing.T) {
+	s := newTestPool(2, time.Hour)
+	s.maxStandardDepth = 1
+
+	if ok := s.schedule(context.Background(), PriorityStandard, noopNode()); !ok {
+		t.Fatal("schedule() = false for the first Standard submission, want true")
+	}
+	if ok := s.schedule(context.Background(), PriorityStandard, noopNode()); ok {
+		t.Fatal("schedule() = true once Standard was at its cap, want false")
+	}
+
+	for i := 0; i < 50; i++ {
+		if ok := s.schedule(context.Background(), PriorityBackground, noopNode()); !ok {
+			t.Fatalf("schedule() = false for Background submission #%d, want true — Background has no cap configured", i)
+		}
+	}
+	if n := s.Stats().RejectedBackground; n != 0 {
+		t.Fatalf("Stats().RejectedBackground = %d, want 0 — only Standard's cap was ever hit", n)
+	}
+}
+
+func TestWorker_ScheduleZeroCapIsUnbounded(t *testing.T) {
+	s := newTestPool(2, time.Hour) // maxStandardDepth/maxBackgroundDepth default to 0
+	const n = 10_000
+	for i := 0; i < n; i++ {
+		if ok := s.schedule(context.Background(), PriorityStandard, noopNode()); !ok {
+			t.Fatalf("schedule() = false at submission #%d with no cap configured, want true", i)
+		}
+	}
+	if got := s.Stats().RejectedStandard; got != 0 {
+		t.Fatalf("Stats().RejectedStandard = %d, want 0", got)
+	}
+}
+
 // TestWorker_ScheduleIgnoresForeignSchedulerContext covers schedule's
 // `w.s == s` guard: a context carrying a *different* scheduler's worker
 // must not push onto that worker's deque, where this scheduler's pool
@@ -298,9 +375,9 @@ func TestWorker_ConcurrentFindTaskDeliversEachTaskOnce(t *testing.T) {
 			defer wg.Done()
 			for i := lo; i < lo+perProducer; i++ {
 				if i%2 == 0 {
-					s.standard.push(mark(i))
+					s.standard.push(mark(i), 0)
 				} else {
-					s.background.push(mark(i), time.Now())
+					s.background.push(mark(i), time.Now(), 0)
 				}
 			}
 		}()
@@ -464,7 +541,7 @@ func BenchmarkWorker_FindTaskStandard(b *testing.B) {
 	n := noopNode()
 	b.ReportAllocs()
 	for b.Loop() {
-		s.standard.push(n)
+		s.standard.push(n, 0)
 		w.findTask()
 	}
 }
@@ -478,7 +555,7 @@ func BenchmarkWorker_FindTaskAged(b *testing.B) {
 	now := time.Now()
 	b.ReportAllocs()
 	for b.Loop() {
-		s.background.push(n, now)
+		s.background.push(n, now, 0)
 		w.findTask()
 	}
 }

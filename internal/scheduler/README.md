@@ -186,7 +186,9 @@ A local deque has a fixed capacity (256 by default) because a genuinely
 lock-free *resize* is a much harder algorithm than this scheduler
 currently needs. If a worker's own deque is full when it tries to push
 a child, that push spills to the pool's shared queues instead of
-blocking.
+blocking — and is subject to that queue's depth cap exactly like an
+external `Submit`, since it goes through the same `schedule` path (see
+[Bounding shared-queue depth](#bounding-shared-queue-depth)).
 
 ## Bulkheading and Kind
 
@@ -276,6 +278,50 @@ empty, at which point there is nothing left to age. `worker.go`'s
 of thing a future change could easily reintroduce by accident while
 "fixing" what looks like a missing timer.
 
+## Bounding shared-queue depth
+
+Both shared queues (`injector.go`, `aging.go`) sit on a `ringBuffer` that
+doubles on demand — left uncapped, a `Kind` whose arrival rate outpaces
+its drain rate for long enough grows that queue, and the memory behind
+it, without limit. On a deployment with a fixed memory budget (e.g. a
+GCP container/pod limit), that's an OOM risk, not just a latency one.
+
+`Config.MaxStandardQueueDepth` and `Config.MaxBackgroundQueueDepth` cap
+each queue independently — independently because `PriorityStandard` and
+`PriorityBackground` traffic have different depth needs in practice (a
+steady, latency-sensitive stream vs. deliberately infrequent, large
+batches; see [Usage example](#usage-example)). `<=0` means unbounded,
+matching this scheduler's original behavior, so an existing zero-value
+`Config` doesn't start rejecting anything by accident.
+
+Once a queue is at its cap, `Submit`/`SubmitXxx` resolves the new task's
+`Future` immediately with `ErrQueueFull` instead of enqueuing it —
+**reject fast, rather than block or silently drop.** Both alternatives
+were considered and rejected:
+
+- **Blocking** the submitter until space frees up would, on the
+  local-deque-overflow path, block *inside a running task* on one of the
+  pool's own workers — taking that worker out of rotation until space
+  frees up. That's the exact "a task pins a worker" failure mode
+  bulkheading exists to prevent, just self-inflicted via backpressure
+  instead of an external resource.
+- **Silently dropping** an item (oldest or newest) would quietly break
+  `PriorityBackground`'s core contract — "eventually served, bounded by
+  `AgingThreshold`" — for the dropped item, with no way for its caller
+  to ever find out.
+
+`Stats().RejectedStandard` and `Stats().RejectedBackground` count these
+rejections per queue, so a saturated cap is visible in monitoring rather
+than only surfacing as scattered `ErrQueueFull`s in caller logs — a
+sustained non-zero rate here is the same "arrivals are outpacing drain
+rate" signal as a growing `Aged` count, just for the cap instead of the
+threshold.
+
+The cap only bounds the two *shared* queues; a worker's local deque
+already has its own fixed capacity (`defaultLocalQueueCap`, 256) for
+unrelated reasons (see [Overflow](#overflow)) and isn't affected by
+these fields.
+
 ## Advantages
 
 - **Cross-kind isolation is structural, not policy.** A `Kind`'s worker
@@ -335,12 +381,16 @@ of thing a future change could easily reintroduce by accident while
   work in its pool until its children finish. This is inherent to
   synchronous `Wait()` inside a task, not specific to this
   implementation.
-- **Local deque overflow falls back to the slower path.** Spawning more
-  than `defaultLocalQueueCap` (256) un-drained children from a single
-  worker silently starts spilling to that pool's standard queue. This
-  is correct but loses the lock-free fast path for the overflow; it
-  isn't a capacity *limit* (the shared queues grow unbounded), just a
-  performance cliff to be aware of for very wide fan-outs.
+- **Local deque overflow falls back to the slower path, and can now be
+  rejected outright.** Spawning more than `defaultLocalQueueCap` (256)
+  un-drained children from a single worker silently starts spilling to
+  that pool's standard queue — a performance cliff for very wide
+  fan-outs, since it loses the lock-free fast path. If
+  `Config.MaxStandardQueueDepth` is also set and already at its cap, a
+  spilled child is rejected with `ErrQueueFull` exactly like an external
+  `Submit` would be (see [Bounding shared-queue depth](#bounding-shared-queue-depth))
+  — a wide fan-out under a low cap can now fail some children outright
+  rather than only getting slower.
 - **Stealing is best-effort, not fair, and never crosses a `Kind`
   boundary.** A steal pass starts at a random peer index within the
   same pool and scans everyone once; there's no guarantee of which
@@ -361,3 +411,11 @@ of thing a future change could easily reintroduce by accident while
   paths. An earlier version of this scheduler only rang the doorbell on
   shared-queue pushes, which deadlocked exactly this nested case once
   every worker had already parked.
+- **A configured queue cap needs a caller that actually checks
+  `Result.Err`.** `ErrQueueFull` (like `ErrStopped`) is delivered through
+  the `Future`, not a panic or a synchronous return from `Submit` itself
+  — a caller that only inspects `Result.Value` and ignores `Result.Err`
+  silently treats a rejected task the same as a successful zero value.
+  This is the same shape as `ErrStopped` already has, not a new pitfall
+  class, but it's easy to miss for a `Priority` that "should never" fill
+  up until it actually does under load.

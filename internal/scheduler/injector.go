@@ -19,10 +19,17 @@ func newInjector(capacity int) *injector {
 	return &injector{buf: ringBuffer[*taskNode]{buf: make([]*taskNode, capacity)}}
 }
 
-func (inj *injector) push(t *taskNode) {
+// push enqueues t and reports true, unless max > 0 and the queue is
+// already holding max tasks, in which case it reports false without
+// enqueuing anything.
+func (inj *injector) push(t *taskNode, max int) bool {
 	inj.mu.Lock()
+	defer inj.mu.Unlock()
+	if max > 0 && inj.buf.len >= max {
+		return false
+	}
 	inj.buf.push(t)
-	inj.mu.Unlock()
+	return true
 }
 
 // pop removes and returns the oldest task, or nil if the injector is

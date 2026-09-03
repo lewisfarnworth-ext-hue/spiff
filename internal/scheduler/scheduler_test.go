@@ -60,6 +60,97 @@ func TestSubmit_ManyTasksAllComplete(t *testing.T) {
 	if stats.Submitted != n || stats.Completed != n {
 		t.Fatalf("Stats() = %+v, want Submitted=Completed=%d", stats, n)
 	}
+	if stats.RejectedStandard != 0 {
+		t.Fatalf("Stats().RejectedStandard = %d, want 0 — Config left MaxStandardQueueDepth unset (unbounded)", stats.RejectedStandard)
+	}
+}
+
+// TestSubmit_RejectsWhenStandardQueueFull is the end-to-end path for
+// Config.MaxStandardQueueDepth: once the standard queue is holding that
+// many tasks, a further PriorityStandard Submit must be rejected with
+// ErrQueueFull immediately rather than left to wait indefinitely, and
+// every task admitted before the cap was hit must still run normally.
+func TestSubmit_RejectsWhenStandardQueueFull(t *testing.T) {
+	const depth = 3
+	s := New(Config{Workers: 1, MaxStandardQueueDepth: depth})
+	defer s.Stop()
+
+	// Occupy the sole worker so subsequent submissions queue instead of
+	// running immediately, making the queue depth observable.
+	block := make(chan struct{})
+	Submit(context.Background(), s, PriorityStandard, func(context.Context) (int, error) {
+		<-block
+		return 0, nil
+	})
+	time.Sleep(20 * time.Millisecond)
+
+	queued := make([]*Future[int], depth)
+	for i := range queued {
+		queued[i] = Submit(context.Background(), s, PriorityStandard, func(context.Context) (int, error) {
+			return 1, nil
+		})
+	}
+
+	rejected := Submit(context.Background(), s, PriorityStandard, func(context.Context) (int, error) {
+		t.Fatal("fn should never run: it was rejected before being queued")
+		return 0, nil
+	})
+	res := rejected.Wait()
+	if !errors.Is(res.Err, ErrQueueFull) {
+		t.Fatalf("Wait().Err = %v, want ErrQueueFull", res.Err)
+	}
+	if n := s.Stats().RejectedStandard; n != 1 {
+		t.Fatalf("Stats().RejectedStandard = %d, want 1", n)
+	}
+
+	close(block)
+	for i, f := range queued {
+		if res := f.Wait(); res.Err != nil || res.Value != 1 {
+			t.Fatalf("queued task %d result = %+v, want {1 <nil>}", i, res)
+		}
+	}
+}
+
+// TestSubmit_RejectsWhenBackgroundQueueFull is the same check for
+// Config.MaxBackgroundQueueDepth, confirming the two caps are wired to
+// their own independent queues and counters end-to-end.
+func TestSubmit_RejectsWhenBackgroundQueueFull(t *testing.T) {
+	const depth = 3
+	s := New(Config{Workers: 1, AgingThreshold: time.Hour, MaxBackgroundQueueDepth: depth})
+	defer s.Stop()
+
+	block := make(chan struct{})
+	Submit(context.Background(), s, PriorityStandard, func(context.Context) (int, error) {
+		<-block
+		return 0, nil
+	})
+	time.Sleep(20 * time.Millisecond)
+
+	queued := make([]*Future[int], depth)
+	for i := range queued {
+		queued[i] = Submit(context.Background(), s, PriorityBackground, func(context.Context) (int, error) {
+			return 1, nil
+		})
+	}
+
+	rejected := Submit(context.Background(), s, PriorityBackground, func(context.Context) (int, error) {
+		t.Fatal("fn should never run: it was rejected before being queued")
+		return 0, nil
+	})
+	res := rejected.Wait()
+	if !errors.Is(res.Err, ErrQueueFull) {
+		t.Fatalf("Wait().Err = %v, want ErrQueueFull", res.Err)
+	}
+	if n := s.Stats().RejectedBackground; n != 1 {
+		t.Fatalf("Stats().RejectedBackground = %d, want 1", n)
+	}
+
+	close(block)
+	for i, f := range queued {
+		if res := f.Wait(); res.Err != nil || res.Value != 1 {
+			t.Fatalf("queued task %d result = %+v, want {1 <nil>}", i, res)
+		}
+	}
 }
 
 // TestSubmit_NestedSpawnsRunOnOwnerAndAreStolen verifies that a task
@@ -263,6 +354,21 @@ func TestSubmit_ConcurrentExternalSubmitters(t *testing.T) {
 
 func BenchmarkSubmit_Trivial(b *testing.B) {
 	s := New(Config{Workers: 0})
+	defer s.Stop()
+
+	b.ReportAllocs()
+	for b.Loop() {
+		Submit(context.Background(), s, PriorityStandard, func(context.Context) (int, error) {
+			return 0, nil
+		}).Wait()
+	}
+}
+
+// BenchmarkSubmit_TrivialCapped is BenchmarkSubmit_Trivial with a real
+// (generously sized, so it's never actually hit) MaxStandardQueueDepth
+// configured, isolating what the depth check on the Submit path costs.
+func BenchmarkSubmit_TrivialCapped(b *testing.B) {
+	s := New(Config{Workers: 0, MaxStandardQueueDepth: 1 << 20})
 	defer s.Stop()
 
 	b.ReportAllocs()

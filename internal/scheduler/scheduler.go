@@ -33,6 +33,17 @@ import (
 // no worker left to run it.
 var ErrStopped = errors.New("scheduler: stopped")
 
+// ErrQueueFull is returned via Result.Err by Submit when priority's
+// shared queue is already at its configured depth cap
+// (Config.MaxStandardQueueDepth or Config.MaxBackgroundQueueDepth).
+// This stays a single package-level sentinel rather than one instance
+// per Kind or per queue: the caller already knows which Kind and
+// Priority it submitted with — it chose the SubmitXxx function and the
+// Priority argument itself — so there's no ambiguity a bespoke error
+// value would resolve. Wrap it with fmt.Errorf/%w at the call site if a
+// caller wants that context attached to the error string.
+var ErrQueueFull = errors.New("scheduler: queue full")
+
 // defaultLocalQueueCap is the fixed capacity of each worker's local
 // deque. It must be a power of two (see deque.pushBottom). Work beyond
 // this per worker spills to the shared queues rather than blocking.
@@ -85,6 +96,16 @@ type Stats struct {
 	// consistently high count relative to Submitted is a signal that
 	// AgingThreshold or the pool's worker count needs retuning.
 	Aged int64
+	// RejectedStandard counts PriorityStandard tasks refused with
+	// ErrQueueFull because the standard queue was already at
+	// Config.MaxStandardQueueDepth. Any non-zero count here is a signal
+	// that arrivals are outpacing this pool's drain rate, not just a
+	// transient blip — a capped queue rejects instead of growing
+	// unbounded, so this is the visibility that trade gives up.
+	RejectedStandard int64
+	// RejectedBackground is the same signal for PriorityBackground
+	// tasks refused against Config.MaxBackgroundQueueDepth.
+	RejectedBackground int64
 }
 
 // Config configures a Scheduler.
@@ -108,6 +129,25 @@ type Config struct {
 	// earlier, never later, so AgingThreshold's bound is never widened.
 	// Clamped to AgingThreshold if larger.
 	AgingJitter time.Duration
+
+	// MaxStandardQueueDepth caps how many PriorityStandard tasks may sit
+	// in the standard queue at once — this also covers local-deque
+	// overflow spill, which lands in the same queue (see schedule).
+	// <=0 means unbounded, matching this scheduler's original behavior.
+	// Once the cap is reached, Submit resolves the new task's Future
+	// immediately with ErrQueueFull instead of enqueuing it, trading an
+	// explicit rejection for the unbounded memory growth an
+	// unconstrained queue would otherwise be exposed to under sustained
+	// overload.
+	MaxStandardQueueDepth int
+
+	// MaxBackgroundQueueDepth is the equivalent cap for the background
+	// (aging) queue, configured independently from
+	// MaxStandardQueueDepth since a PriorityBackground caller
+	// (deliberately infrequent, larger batches) may legitimately need
+	// to queue far deeper than PriorityStandard traffic ever should
+	// before draining. <=0 means unbounded.
+	MaxBackgroundQueueDepth int
 }
 
 // Scheduler is a fixed-size pool of work-stealing workers. The zero
@@ -120,11 +160,19 @@ type Scheduler struct {
 	stop       chan struct{}
 	wg         sync.WaitGroup
 
-	stopped   atomic.Bool
-	submitted atomic.Int64
-	completed atomic.Int64
-	stolen    atomic.Int64
-	aged      atomic.Int64
+	// maxStandardDepth and maxBackgroundDepth are copied from Config at
+	// construction and never change afterward, so schedule can read
+	// them without synchronization.
+	maxStandardDepth   int
+	maxBackgroundDepth int
+
+	stopped            atomic.Bool
+	submitted          atomic.Int64
+	completed          atomic.Int64
+	stolen             atomic.Int64
+	aged               atomic.Int64
+	rejectedStandard   atomic.Int64
+	rejectedBackground atomic.Int64
 }
 
 // New starts a Scheduler per cfg. See Config for field semantics.
@@ -140,10 +188,12 @@ func New(cfg Config) *Scheduler {
 	}
 
 	s := &Scheduler{
-		standard:   newInjector(queueCap),
-		background: newAgingQueue(queueCap, cfg.AgingThreshold, jitter, rand.Uint64(), rand.Uint64()),
-		wake:       make(chan struct{}, numWorkers),
-		stop:       make(chan struct{}),
+		standard:           newInjector(queueCap),
+		background:         newAgingQueue(queueCap, cfg.AgingThreshold, jitter, rand.Uint64(), rand.Uint64()),
+		wake:               make(chan struct{}, numWorkers),
+		stop:               make(chan struct{}),
+		maxStandardDepth:   cfg.MaxStandardQueueDepth,
+		maxBackgroundDepth: cfg.MaxBackgroundQueueDepth,
 	}
 
 	s.workers = make([]*worker, numWorkers)
@@ -193,34 +243,55 @@ func Submit[T any](ctx context.Context, s *Scheduler, priority Priority, fn Func
 		s.completed.Add(1)
 		close(fut.done)
 	}}
-	s.schedule(ctx, priority, node)
+	if !s.schedule(ctx, priority, node) {
+		fut.res = Result[T]{Err: ErrQueueFull}
+		close(fut.done)
+	}
 	return fut
 }
 
 // schedule routes n to the calling worker's own deque when possible,
-// falling back to priority's shared queue, and always rings the wake
-// doorbell. This applies even for a local push: idle workers that have
-// already parked only wake on this signal, and have no other way to
-// learn that a busy peer just grew its local deque and become
+// falling back to priority's shared queue, and rings the wake doorbell
+// on success. This applies even for a local push: idle workers that
+// have already parked only wake on this signal, and have no other way
+// to learn that a busy peer just grew its local deque and become
 // stealable. Without it, a worker fanning out local work while every
 // peer is parked deadlocks — nothing left to wake them.
-func (s *Scheduler) schedule(ctx context.Context, priority Priority, n *taskNode) {
+//
+// It reports whether n was actually accepted. false means priority's
+// shared queue was already at its configured depth cap
+// (Config.MaxStandardQueueDepth / MaxBackgroundQueueDepth); the local
+// deque itself has no cap-driven rejection path, since a full local
+// deque simply spills to the shared queue instead of failing. On false,
+// Submit resolves n's Future with ErrQueueFull itself — n is not
+// retried or queued anywhere.
+func (s *Scheduler) schedule(ctx context.Context, priority Priority, n *taskNode) bool {
 	s.submitted.Add(1)
 
 	if w, ok := workerFromContext(ctx); ok && w.s == s {
 		if w.dq.pushBottom(n) {
 			s.ringWake()
-			return
+			return true
 		}
 		// Local deque full; spill to the shared queues below.
 	}
 
+	var ok bool
 	if priority == PriorityBackground {
-		s.background.push(n, time.Now())
+		ok = s.background.push(n, time.Now(), s.maxBackgroundDepth)
 	} else {
-		s.standard.push(n)
+		ok = s.standard.push(n, s.maxStandardDepth)
+	}
+	if !ok {
+		if priority == PriorityBackground {
+			s.rejectedBackground.Add(1)
+		} else {
+			s.rejectedStandard.Add(1)
+		}
+		return false
 	}
 	s.ringWake()
+	return true
 }
 
 // ringWake wakes one parked worker, if any; it is a no-op if the
@@ -249,9 +320,11 @@ func (s *Scheduler) Stop() {
 // Stats returns a snapshot of scheduler activity.
 func (s *Scheduler) Stats() Stats {
 	return Stats{
-		Submitted: s.submitted.Load(),
-		Completed: s.completed.Load(),
-		Stolen:    s.stolen.Load(),
-		Aged:      s.aged.Load(),
+		Submitted:          s.submitted.Load(),
+		Completed:          s.completed.Load(),
+		Stolen:             s.stolen.Load(),
+		Aged:               s.aged.Load(),
+		RejectedStandard:   s.rejectedStandard.Load(),
+		RejectedBackground: s.rejectedBackground.Load(),
 	}
 }

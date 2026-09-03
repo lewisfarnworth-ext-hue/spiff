@@ -45,19 +45,26 @@ func newAgingQueue(capacity int, threshold, jitter time.Duration, seed1, seed2 u
 }
 
 // push enqueues t with a deadline of now + threshold, minus an
-// independent random amount in [0, jitter] drawn for this item alone.
-// Jitter only ever pulls the deadline earlier, never later, so a batch
-// pushed at once is spread across [now+threshold-jitter, now+threshold]
-// instead of all crossing the threshold in the same instant, without
-// ever widening the "waits at most threshold" bound.
-func (q *agingQueue) push(t *taskNode, now time.Time) {
+// independent random amount in [0, jitter] drawn for this item alone,
+// and reports true — unless max > 0 and the queue is already holding
+// max tasks, in which case it reports false without enqueuing anything
+// or drawing jitter. Jitter only ever pulls the deadline earlier, never
+// later, so a batch pushed at once is spread across
+// [now+threshold-jitter, now+threshold] instead of all crossing the
+// threshold in the same instant, without ever widening the "waits at
+// most threshold" bound.
+func (q *agingQueue) push(t *taskNode, now time.Time, max int) bool {
 	q.mu.Lock()
+	defer q.mu.Unlock()
+	if max > 0 && q.buf.len >= max {
+		return false
+	}
 	deadline := now.Add(q.threshold)
 	if q.jitter > 0 {
 		deadline = deadline.Add(-time.Duration(q.rng.Int64N(int64(q.jitter) + 1)))
 	}
 	q.buf.push(agingNode{task: t, deadline: deadline})
-	q.mu.Unlock()
+	return true
 }
 
 // popAged removes and returns the oldest task only if its deadline has

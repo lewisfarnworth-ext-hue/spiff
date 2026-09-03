@@ -26,7 +26,7 @@ func TestAgingQueue_FIFOOrder(t *testing.T) {
 	for i := 0; i < 5; i++ {
 		n := noopNode()
 		pushed = append(pushed, n)
-		q.push(n, time.Now())
+		q.push(n, time.Now(), 0)
 	}
 
 	for i, want := range pushed {
@@ -44,7 +44,7 @@ func TestAgingQueue_PopAgedOnlyWhenElapsed(t *testing.T) {
 	const threshold = 50 * time.Millisecond
 	q := newAgingQueue(4, threshold, 0, 1, 2)
 	now := time.Now()
-	q.push(noopNode(), now)
+	q.push(noopNode(), now, 0)
 
 	if got := q.popAged(now); got != nil {
 		t.Fatal("popAged() returned a task before its deadline elapsed")
@@ -57,7 +57,7 @@ func TestAgingQueue_PopAgedOnlyWhenElapsed(t *testing.T) {
 func TestAgingQueue_PopIgnoresDeadline(t *testing.T) {
 	q := newAgingQueue(4, time.Hour, 0, 1, 2)
 	n := noopNode()
-	q.push(n, time.Now())
+	q.push(n, time.Now(), 0)
 
 	if got := q.pop(); got != n {
 		t.Fatalf("pop() = %p, want %p — pop must ignore the deadline entirely", got, n)
@@ -71,7 +71,7 @@ func TestAgingQueue_JitterNeverExceedsThreshold(t *testing.T) {
 	now := time.Now()
 
 	for i := 0; i < 1000; i++ {
-		q.push(noopNode(), now)
+		q.push(noopNode(), now, 0)
 	}
 	for {
 		dl, ok := q.frontDeadline()
@@ -99,7 +99,7 @@ func TestAgingQueue_JitterSpreadsDeadlines(t *testing.T) {
 	q := newAgingQueue(4, threshold, jitter, 1, 2)
 	now := time.Now()
 	for i := 0; i < n; i++ {
-		q.push(noopNode(), now)
+		q.push(noopNode(), now, 0)
 	}
 
 	distinct := make(map[time.Time]struct{})
@@ -120,7 +120,7 @@ func TestAgingQueue_ZeroJitterIsDeterministic(t *testing.T) {
 	const threshold = 100 * time.Millisecond
 	q := newAgingQueue(4, threshold, 0, 1, 2)
 	now := time.Now()
-	q.push(noopNode(), now)
+	q.push(noopNode(), now, 0)
 
 	dl, ok := q.frontDeadline()
 	if !ok {
@@ -143,7 +143,7 @@ func TestAgingQueue_ConcurrentPushPop(t *testing.T) {
 		go func() {
 			defer wg.Done()
 			for j := 0; j < perProducer; j++ {
-				q.push(noopNode(), time.Now())
+				q.push(noopNode(), time.Now(), 0)
 			}
 		}()
 	}
@@ -157,13 +157,61 @@ func TestAgingQueue_ConcurrentPushPop(t *testing.T) {
 	wg.Wait()
 }
 
+func TestAgingQueue_RespectsMaxDepth(t *testing.T) {
+	const max = 3
+	q := newAgingQueue(8, time.Hour, 0, 1, 2)
+	now := time.Now()
+	for i := 0; i < max; i++ {
+		if !q.push(noopNode(), now, max) {
+			t.Fatalf("push() #%d reported full before reaching max=%d", i, max)
+		}
+	}
+	if q.push(noopNode(), now, max) {
+		t.Fatal("push() succeeded once the queue was already at max, want false")
+	}
+
+	// Freeing a slot via pop must let the next push through again — the
+	// cap bounds depth, not a one-shot lifetime.
+	if q.pop() == nil {
+		t.Fatal("pop() = nil, want the oldest task")
+	}
+	if !q.push(noopNode(), now, max) {
+		t.Fatal("push() reported full despite freeing a slot via pop()")
+	}
+}
+
+func TestAgingQueue_ZeroMaxIsUnbounded(t *testing.T) {
+	q := newAgingQueue(2, time.Hour, 0, 1, 2)
+	now := time.Now()
+	for i := 0; i < 1000; i++ {
+		if !q.push(noopNode(), now, 0) {
+			t.Fatalf("push() #%d reported full with max=0, want unbounded", i)
+		}
+	}
+}
+
 func BenchmarkAgingQueue_PushPop(b *testing.B) {
 	q := newAgingQueue(1024, time.Hour, time.Minute, 1, 2)
 	n := noopNode()
 	now := time.Now()
 	b.ReportAllocs()
 	for b.Loop() {
-		q.push(n, now)
+		q.push(n, now, 0)
+		q.pop()
+	}
+}
+
+// BenchmarkAgingQueue_PushPopCapped isolates what the depth check costs
+// on top of an unbounded push (BenchmarkAgingQueue_PushPop) — an int
+// compare under the same lock push already holds, so no measurable
+// delta is expected.
+func BenchmarkAgingQueue_PushPopCapped(b *testing.B) {
+	q := newAgingQueue(1024, time.Hour, time.Minute, 1, 2)
+	n := noopNode()
+	now := time.Now()
+	b.ReportAllocs()
+	for b.Loop() {
+		q.push(n, now, 1<<20)
 		q.pop()
 	}
 }
