@@ -1,0 +1,50 @@
+@startuml high-level-scheduler
+title Scheduler Package — Internal Containers
+
+skinparam rectangle {
+  BackgroundColor<<bulkhead>> #D9D9D9
+  BackgroundColor<<scheduler>> #E8F4FA
+  BackgroundColor<<pool>> #D9EAD3
+  BackgroundColor<<queue>> #FFF3CD
+  BackgroundColor<<struct>> #FDE9D9
+  BorderColor black
+}
+
+rectangle "Bulkhead\n(one Scheduler per Kind)" <<bulkhead>> as Bulkhead
+
+rectangle "Scheduler" <<scheduler>> as Scheduler {
+
+  rectangle "Priority\n(Standard / Background)" <<struct>> as Priority
+
+  rectangle "Standard Queue\n(injector)" <<queue>> as Injector
+  rectangle "Background Queue\n(aging queue)" <<queue>> as Aging
+  rectangle "Ring Buffer" <<struct>> as RingBuffer
+
+  rectangle "Worker Pool" <<pool>> as WorkerPool {
+    rectangle "Worker 1" <<struct>> as W1
+    rectangle "Worker 2" <<struct>> as W2
+    rectangle "Worker N" <<struct>> as WN
+    rectangle "Deque 1" <<struct>> as D1
+    rectangle "Deque 2" <<struct>> as D2
+    rectangle "Deque N" <<struct>> as DN
+
+    W1 -- D1
+    W2 -- D2
+    WN -- DN
+    D1 <-> D2
+    D2 <-> DN
+  }
+
+  Injector --> RingBuffer
+  Aging --> RingBuffer
+
+  Priority --> Injector
+  Priority --> Aging
+
+  Injector --> WorkerPool
+  Aging --> WorkerPool
+}
+
+Bulkhead --> Scheduler
+
+@enduml
