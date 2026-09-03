@@ -1,0 +1,153 @@
+@startuml full-bulkhead-scheduler
+title Bulkhead — Full Design (one independent Scheduler per Kind)
+
+skinparam rectangle {
+  BackgroundColor<<bulkhead>> #D9D9D9
+  BackgroundColor<<scheduler>> #E8F4FA
+  BackgroundColor<<pool>> #D9EAD3
+  BackgroundColor<<queue>> #FFF3CD
+  BackgroundColor<<struct>> #FDE9D9
+  BorderColor black
+}
+
+rectangle "Bulkhead" <<bulkhead>> as Bulkhead {
+
+  rectangle "Scheduler: KindLLM" <<scheduler>> as S_llm {
+    rectangle "Priority" <<struct>> as P_llm
+    rectangle "Standard Queue\n(injector)" <<queue>> as Inj_llm
+    rectangle "Background Queue\n(aging queue)" <<queue>> as Age_llm
+    rectangle "Ring Buffer" <<struct>> as RB_llm
+    rectangle "Worker Pool" <<pool>> as WP_llm {
+      rectangle "Worker 1" <<struct>> as W1_llm
+      rectangle "Worker 2" <<struct>> as W2_llm
+      rectangle "Worker N" <<struct>> as WN_llm
+      rectangle "Deque 1" <<struct>> as D1_llm
+      rectangle "Deque 2" <<struct>> as D2_llm
+      rectangle "Deque N" <<struct>> as DN_llm
+      W1_llm -- D1_llm
+      W2_llm -- D2_llm
+      WN_llm -- DN_llm
+      D1_llm <-> D2_llm
+      D2_llm <-> DN_llm
+    }
+    Inj_llm --> RB_llm
+    Age_llm --> RB_llm
+    P_llm --> Inj_llm
+    P_llm --> Age_llm
+    Inj_llm --> WP_llm
+    Age_llm --> WP_llm
+  }
+
+  rectangle "Scheduler: KindFetch" <<scheduler>> as S_fetch {
+    rectangle "Priority" <<struct>> as P_fetch
+    rectangle "Standard Queue\n(injector)" <<queue>> as Inj_fetch
+    rectangle "Background Queue\n(aging queue)" <<queue>> as Age_fetch
+    rectangle "Ring Buffer" <<struct>> as RB_fetch
+    rectangle "Worker Pool" <<pool>> as WP_fetch {
+      rectangle "Worker 1" <<struct>> as W1_fetch
+      rectangle "Worker 2" <<struct>> as W2_fetch
+      rectangle "Worker N" <<struct>> as WN_fetch
+      rectangle "Deque 1" <<struct>> as D1_fetch
+      rectangle "Deque 2" <<struct>> as D2_fetch
+      rectangle "Deque N" <<struct>> as DN_fetch
+      W1_fetch -- D1_fetch
+      W2_fetch -- D2_fetch
+      WN_fetch -- DN_fetch
+      D1_fetch <-> D2_fetch
+      D2_fetch <-> DN_fetch
+    }
+    Inj_fetch --> RB_fetch
+    Age_fetch --> RB_fetch
+    P_fetch --> Inj_fetch
+    P_fetch --> Age_fetch
+    Inj_fetch --> WP_fetch
+    Age_fetch --> WP_fetch
+  }
+
+  rectangle "Scheduler: KindProxyFetch" <<scheduler>> as S_proxy {
+    rectangle "Priority" <<struct>> as P_proxy
+    rectangle "Standard Queue\n(injector)" <<queue>> as Inj_proxy
+    rectangle "Background Queue\n(aging queue)" <<queue>> as Age_proxy
+    rectangle "Ring Buffer" <<struct>> as RB_proxy
+    rectangle "Worker Pool" <<pool>> as WP_proxy {
+      rectangle "Worker 1" <<struct>> as W1_proxy
+      rectangle "Worker 2" <<struct>> as W2_proxy
+      rectangle "Worker N" <<struct>> as WN_proxy
+      rectangle "Deque 1" <<struct>> as D1_proxy
+      rectangle "Deque 2" <<struct>> as D2_proxy
+      rectangle "Deque N" <<struct>> as DN_proxy
+      W1_proxy -- D1_proxy
+      W2_proxy -- D2_proxy
+      WN_proxy -- DN_proxy
+      D1_proxy <-> D2_proxy
+      D2_proxy <-> DN_proxy
+    }
+    Inj_proxy --> RB_proxy
+    Age_proxy --> RB_proxy
+    P_proxy --> Inj_proxy
+    P_proxy --> Age_proxy
+    Inj_proxy --> WP_proxy
+    Age_proxy --> WP_proxy
+  }
+
+  rectangle "Scheduler: KindChromedp" <<scheduler>> as S_chromedp {
+    rectangle "Priority" <<struct>> as P_chromedp
+    rectangle "Standard Queue\n(injector)" <<queue>> as Inj_chromedp
+    rectangle "Background Queue\n(aging queue)" <<queue>> as Age_chromedp
+    rectangle "Ring Buffer" <<struct>> as RB_chromedp
+    rectangle "Worker Pool" <<pool>> as WP_chromedp {
+      rectangle "Worker 1" <<struct>> as W1_chromedp
+      rectangle "Worker 2" <<struct>> as W2_chromedp
+      rectangle "Worker N" <<struct>> as WN_chromedp
+      rectangle "Deque 1" <<struct>> as D1_chromedp
+      rectangle "Deque 2" <<struct>> as D2_chromedp
+      rectangle "Deque N" <<struct>> as DN_chromedp
+      W1_chromedp -- D1_chromedp
+      W2_chromedp -- D2_chromedp
+      WN_chromedp -- DN_chromedp
+      D1_chromedp <-> D2_chromedp
+      D2_chromedp <-> DN_chromedp
+    }
+    Inj_chromedp --> RB_chromedp
+    Age_chromedp --> RB_chromedp
+    P_chromedp --> Inj_chromedp
+    P_chromedp --> Age_chromedp
+    Inj_chromedp --> WP_chromedp
+    Age_chromedp --> WP_chromedp
+  }
+
+  rectangle "Scheduler: KindTwoCaptcha" <<scheduler>> as S_twocaptcha {
+    rectangle "Priority" <<struct>> as P_twocaptcha
+    rectangle "Standard Queue\n(injector)" <<queue>> as Inj_twocaptcha
+    rectangle "Background Queue\n(aging queue)" <<queue>> as Age_twocaptcha
+    rectangle "Ring Buffer" <<struct>> as RB_twocaptcha
+    rectangle "Worker Pool" <<pool>> as WP_twocaptcha {
+      rectangle "Worker 1" <<struct>> as W1_twocaptcha
+      rectangle "Worker 2" <<struct>> as W2_twocaptcha
+      rectangle "Worker N" <<struct>> as WN_twocaptcha
+      rectangle "Deque 1" <<struct>> as D1_twocaptcha
+      rectangle "Deque 2" <<struct>> as D2_twocaptcha
+      rectangle "Deque N" <<struct>> as DN_twocaptcha
+      W1_twocaptcha -- D1_twocaptcha
+      W2_twocaptcha -- D2_twocaptcha
+      WN_twocaptcha -- DN_twocaptcha
+      D1_twocaptcha <-> D2_twocaptcha
+      D2_twocaptcha <-> DN_twocaptcha
+    }
+    Inj_twocaptcha --> RB_twocaptcha
+    Age_twocaptcha --> RB_twocaptcha
+    P_twocaptcha --> Inj_twocaptcha
+    P_twocaptcha --> Age_twocaptcha
+    Inj_twocaptcha --> WP_twocaptcha
+    Age_twocaptcha --> WP_twocaptcha
+  }
+}
+
+note bottom of Bulkhead
+  Each Scheduler is fully independent: its own Priority
+  routing, Standard/Background queues, Ring Buffer, and
+  Worker Pool. No queue or worker is ever shared across
+  Kinds — a burst against one Kind cannot starve another.
+end note
+
+@enduml
