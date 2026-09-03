@@ -16,6 +16,64 @@ surrounding `aih`/`csj`/`hba` containers and pool wiring it depicts belong to
 a different service that consumes this package — nothing outside
 `internal/scheduler` in this repo wires up `Kind`s yet.
 
+## Usage example 
+
+Two callers, `Updates` and `Research`, share the same pools — `KindLLM`
+for config generation, `KindChromedp` for crawling — and are told apart
+purely by `Priority`, not by `Kind`. `Updates` submits constantly and
+wants to run as soon as possible (`PriorityStandard`); `Research` submits
+infrequent batches that are fine waiting behind `Updates` traffic, bounded
+by `AgingThreshold` either way (`PriorityBackground`).
+
+```go
+// --- constructed once, shared by both callers ---
+bh, err := scheduler.NewBulkhead(map[scheduler.Kind]scheduler.Config{
+    scheduler.KindLLM:      {Workers: 8, AgingThreshold: 30 * time.Second},
+    scheduler.KindChromedp: {Workers: 4, AgingThreshold: 30 * time.Second},
+    // ...every other Kind in AllKinds() needs an entry too.
+})
+if err != nil {
+    log.Fatal(err)
+}
+defer bh.Stop()
+```
+
+```go
+// Updates: PriorityStandard — runs ahead of Research's backlog.
+func (u *UpdatesService) GenerateConfig(ctx context.Context, src Source) (scheduler.LLMResult, error) {
+    res := scheduler.SubmitLLM(ctx, u.bh, scheduler.PriorityStandard, func(ctx context.Context) (scheduler.LLMResult, error) {
+        return callLLM(ctx, buildPrompt(src))
+    }).Wait()
+    return res.Value, res.Err
+}
+
+func (u *UpdatesService) Crawl(ctx context.Context, url string) (scheduler.ChromedpResult, error) {
+    res := scheduler.SubmitChromedp(ctx, u.bh, scheduler.PriorityStandard, func(ctx context.Context) (scheduler.ChromedpResult, error) {
+        return renderWithChromedp(ctx, url)
+    }).Wait()
+    return res.Value, res.Err
+}
+```
+
+```go
+// Research: PriorityBackground — waits behind Updates, but never past
+// AgingThreshold regardless of how much Updates traffic keeps arriving.
+func (r *ResearchService) RunBatch(ctx context.Context, sources []Source) []*scheduler.Future[scheduler.LLMResult] {
+    futs := make([]*scheduler.Future[scheduler.LLMResult], len(sources))
+    for i, src := range sources {
+        futs[i] = scheduler.SubmitLLM(ctx, r.bh, scheduler.PriorityBackground, func(ctx context.Context) (scheduler.LLMResult, error) {
+            return callLLM(ctx, buildPrompt(src))
+        })
+    }
+    return futs // caller fans out .Wait() across the batch as needed
+}
+```
+
+The bulkhead boundary here is about isolating different workloads 
+(i.e. `Kinds`) from eachother, not about isolating the two teams from each
+other. That separation within a shared pool is `Priority`'s job (see
+[Priority, aging, and jitter](#priority-aging-and-jitter)).
+
 ## Why bulkheaded, work-stealing, and priority-aware
 
 **Bulkheading.** A single shared pool spanning every resource kind has
