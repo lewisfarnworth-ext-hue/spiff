@@ -16,6 +16,11 @@ surrounding `aih`/`csj`/`hba` containers and pool wiring it depicts belong to
 a different service that consumes this package — nothing outside
 `internal/scheduler` in this repo wires up `Kind`s yet.
 
+For a more literal, container-by-container view of the same code (one
+`Scheduler`'s `Priority`, queues, ring buffer, and worker pool), see:
+
+![High-level scheduler container diagram](../../assets/high-level-scheduler.png)
+
 ## Usage example 
 
 Two callers, `Updates` and `Research`, share the same pools — `KindLLM`
@@ -202,6 +207,14 @@ accident (e.g. falling back to `runtime.NumCPU` workers for a 2-session
 browser pool) is precisely the bug bulkheading exists to prevent, so a
 missing entry fails loudly at construction instead of quietly at
 runtime.
+
+![Full bulkhead scheduler diagram — one independent copy of every container per Kind](../../assets/full-bulkhead-scheduler.png)
+
+Every `Scheduler` inside the `Bulkhead` has the identical internal shape
+shown above (its own `Priority` routing, standard/background queues,
+ring buffer, and worker pool) — nothing is shared across `Kind`
+boundaries, which is what makes the isolation structural rather than a
+matter of careful queue management.
 
 Each `Kind` gets a matching pair of types and a `SubmitXxx` function in
 `kinds.go` (e.g. `LLMFunc`/`LLMResult`/`SubmitLLM`) — thin wrappers
