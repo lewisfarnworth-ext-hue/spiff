@@ -5,6 +5,10 @@ Some of the practices diverge from typical company standards, as I was testing w
 
 **The scheduler is the only important piece of code in this repo, as it's the only one relevant for the RFC.**
 
+![Full bulkhead scheduler diagram](assets/full-bulkhead-scheduler.png)
+
+See `internal/scheduler/README.md` for the full design writeup.
+
 Some of the peripherals (e.g. the TLS transport configuration) could probably be quite fruitful for the final service,
 be that signal or new one(s).  
 
