@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"runtime"
+	"spiff/internal/spifferrs"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -96,7 +97,7 @@ func TestSubmit_RejectsWhenStandardQueueFull(t *testing.T) {
 		return 0, nil
 	})
 	res := rejected.Wait()
-	if !errors.Is(res.Err, ErrQueueFull) {
+	if !errors.Is(res.Err, spifferrs.ErrQueueFull) {
 		t.Fatalf("Wait().Err = %v, want ErrQueueFull", res.Err)
 	}
 	if n := s.Stats().RejectedStandard; n != 1 {
@@ -138,7 +139,7 @@ func TestSubmit_RejectsWhenBackgroundQueueFull(t *testing.T) {
 		return 0, nil
 	})
 	res := rejected.Wait()
-	if !errors.Is(res.Err, ErrQueueFull) {
+	if !errors.Is(res.Err, spifferrs.ErrQueueFull) {
 		t.Fatalf("Wait().Err = %v, want ErrQueueFull", res.Err)
 	}
 	if n := s.Stats().RejectedBackground; n != 1 {
@@ -318,7 +319,7 @@ func TestSubmit_AfterStop_ReturnsErrStopped(t *testing.T) {
 		return 0, nil
 	})
 	res := fut.Wait()
-	if !errors.Is(res.Err, ErrStopped) {
+	if !errors.Is(res.Err, spifferrs.ErrStopped) {
 		t.Fatalf("Wait().Err = %v, want ErrStopped", res.Err)
 	}
 }

@@ -19,30 +19,13 @@ package scheduler
 
 import (
 	"context"
-	"errors"
 	"math/rand/v2"
 	"runtime"
+	"spiff/internal/spifferrs"
 	"sync"
 	"sync/atomic"
 	"time"
 )
-
-// ErrStopped is returned via Result.Err by Submit when the scheduler
-// has already been (or is concurrently being) stopped, since a task
-// accepted after that point would otherwise sit in a queue forever with
-// no worker left to run it.
-var ErrStopped = errors.New("scheduler: stopped")
-
-// ErrQueueFull is returned via Result.Err by Submit when priority's
-// shared queue is already at its configured depth cap
-// (Config.MaxStandardQueueDepth or Config.MaxBackgroundQueueDepth).
-// This stays a single package-level sentinel rather than one instance
-// per Kind or per queue: the caller already knows which Kind and
-// Priority it submitted with — it chose the SubmitXxx function and the
-// Priority argument itself — so there's no ambiguity a bespoke error
-// value would resolve. Wrap it with fmt.Errorf/%w at the call site if a
-// caller wants that context attached to the error string.
-var ErrQueueFull = errors.New("scheduler: queue full")
 
 // defaultLocalQueueCap is the fixed capacity of each worker's local
 // deque. It must be a power of two (see deque.pushBottom). Work beyond
@@ -227,7 +210,7 @@ func New(cfg Config) *Scheduler {
 func Submit[T any](ctx context.Context, s *Scheduler, priority Priority, fn Func[T]) *Future[T] {
 	fut := &Future[T]{done: make(chan struct{})}
 	if s.stopped.Load() {
-		fut.res = Result[T]{Err: ErrStopped}
+		fut.res = Result[T]{Err: spifferrs.ErrStopped}
 		close(fut.done)
 		return fut
 	}
@@ -244,7 +227,7 @@ func Submit[T any](ctx context.Context, s *Scheduler, priority Priority, fn Func
 		close(fut.done)
 	}}
 	if !s.schedule(ctx, priority, node) {
-		fut.res = Result[T]{Err: ErrQueueFull}
+		fut.res = Result[T]{Err: spifferrs.ErrQueueFull}
 		close(fut.done)
 	}
 	return fut

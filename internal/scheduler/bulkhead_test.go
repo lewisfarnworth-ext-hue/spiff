@@ -3,6 +3,7 @@ package scheduler
 import (
 	"context"
 	"errors"
+	"spiff/internal/spifferrs"
 	"testing"
 	"time"
 )
@@ -157,7 +158,7 @@ func TestBulkhead_Stop_StopsEveryPool(t *testing.T) {
 		t.Fatal("fn should never run: bulkhead is stopped")
 		return LLMResult{}, nil
 	}).Wait()
-	if !errors.Is(res.Err, ErrStopped) {
+	if !errors.Is(res.Err, spifferrs.ErrStopped) {
 		t.Fatalf("Wait().Err after Bulkhead.Stop() = %v, want ErrStopped", res.Err)
 	}
 }
